@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  b3-tracker:
+    build: .
+    container_name: b3-tracker-app
+    ports:
+      - "8501:8501"
+    volumes:
+      # O volume mapeia a pasta 'data' de dentro do container para ser gerenciada pelo Docker.
+      # Assim você não perde os ativos salvos se o container reiniciar ou for deletado.
+      - b3_data:/app/data
+    restart: always
+
+volumes:
+  b3_data:
