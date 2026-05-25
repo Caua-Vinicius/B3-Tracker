@@ -61,15 +61,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-def get_db():
-    db = SessionLocal()
-    try:
-        return db
-    finally:
-        db.close()
-
 def main():
-    db = get_db()
     
     # Cabeçalho
     st.title("💎 B3 Tracker Premium Dashboard")
@@ -87,7 +79,8 @@ def main():
         
         if submit_button and new_ticker:
             try:
-                asset = add_asset(db, new_ticker, new_quantity)
+                with SessionLocal() as db:
+                    asset = add_asset(db, new_ticker, new_quantity)
                 st.sidebar.success(f"{asset.ticker} adicionado com sucesso!")
                 st.rerun()
             except Exception as e:
@@ -101,14 +94,16 @@ def main():
         
         if del_button and del_ticker:
             try:
-                delete_asset(db, del_ticker)
+                with SessionLocal() as db:
+                    delete_asset(db, del_ticker)
                 st.sidebar.success(f"{del_ticker} removido!")
                 st.rerun()
             except Exception as e:
                 st.sidebar.error(f"Erro: {e}")
 
     # --- Área Principal ---
-    df_portfolio, total_patrimony = get_portfolio_summary(db)
+    with SessionLocal() as db:
+        df_portfolio, total_patrimony = get_portfolio_summary(db)
     
     if df_portfolio.empty:
         st.info("👋 Bem-vindo! Comece adicionando seus ativos na barra lateral para visualizar seu Dashboard.")

@@ -34,22 +34,24 @@ def get_all_assets(db: Session):
 
 # Cache de 60 segundos para evitar block de IP e otimizar velocidade
 @st.cache_data(ttl=60)
-def fetch_market_data(tickers: list[str]) -> dict:
+def fetch_market_data(tickers: tuple) -> dict:
     if not tickers:
         return {}
     
     try:
         # Busca em lote otimizada
-        data = yf.download(tickers, period="1d", progress=False)
+        data = yf.download(list(tickers), period="1d", progress=False, auto_adjust=True)
         latest_prices = {}
+        close = data['Close']
         
         for ticker in tickers:
             try:
-                # yfinance retorna formato diferente se for 1 ticker ou múltiplos
-                if len(tickers) == 1:
-                    price = float(data['Close'].iloc[-1])
+                # yfinance >= 0.2.x retorna MultiIndex (DataFrame) mesmo com 1 ticker em lista.
+                # Versões antigas retornam Series para ticker único.
+                if isinstance(close, pd.DataFrame):
+                    price = float(close[ticker].dropna().iloc[-1])
                 else:
-                    price = float(data['Close'][ticker].iloc[-1])
+                    price = float(close.dropna().iloc[-1])
                 latest_prices[ticker] = price
             except Exception:
                 latest_prices[ticker] = 0.0
@@ -65,7 +67,7 @@ def get_portfolio_summary(db: Session):
         return pd.DataFrame(), 0.0
     
     tickers = [asset.ticker for asset in assets]
-    market_data = fetch_market_data(tickers)
+    market_data = fetch_market_data(tuple(sorted(tickers)))
     
     portfolio_data = []
     total_patrimony = 0.0
