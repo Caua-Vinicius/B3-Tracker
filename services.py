@@ -89,3 +89,15 @@ def get_portfolio_summary(db: Session):
         
     df = pd.DataFrame(portfolio_data)
     return df, total_patrimony
+
+@st.cache_data(ttl=300)
+def fetch_asset_details(ticker: str) -> dict:
+    """Busca dados fundamentalistas e histórico de preços de um ativo."""
+    try:
+        t = yf.Ticker(ticker)
+        info = t.info
+        history = t.history(period="6mo")
+        return {"info": info, "history": history}
+    except Exception as e:
+        print(f"Erro ao buscar detalhes de {ticker}: {e}")
+        return {"info": {}, "history": pd.DataFrame()}
