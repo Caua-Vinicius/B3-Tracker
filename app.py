@@ -275,14 +275,21 @@ def main():
     
     st.sidebar.header("➕ Cadastrar Ativo")
     with st.sidebar.form("add_asset_form"):
-        new_ticker = st.text_input("Ticker (Ex: PETR4, MXRF11)")
+        new_ticker   = st.text_input("Ticker (Ex: PETR4, MXRF11)")
         new_quantity = st.number_input("Quantidade", min_value=0.01, step=1.0)
+        new_price    = st.number_input(
+            "Preço Pago por Cota (R$)",
+            min_value=0.0,
+            step=0.01,
+            format="%.2f",
+            help="Preço médio que você pagou por cada cota nesta compra. Usado para calcular seu Lucro/Prejuízo.",
+        )
         submit_button = st.form_submit_button("Adicionar à Carteira", use_container_width=True)
-        
+
         if submit_button and new_ticker:
             try:
                 with SessionLocal() as db:
-                    asset = add_asset(db, new_ticker, new_quantity)
+                    asset = add_asset(db, new_ticker, new_quantity, new_price)
                 st.sidebar.success(f"{asset.ticker} adicionado com sucesso!")
                 st.rerun()
             except Exception as e:
@@ -312,21 +319,44 @@ def main():
         return
 
     # 1. Row de Métricas (Premium UI)
+    def _fmt_brl_main(val):
+        """Formatador BRL para uso fora do escopo de render_asset_detail."""
+        if val is None or (isinstance(val, float) and pd.isna(val)):
+            return "—"
+        return f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
     st.markdown("### 📊 Visão Geral")
-    cols = st.columns(4)
-    
-    with cols[0]:
-        st.metric("Patrimônio Total", f"R$ {total_patrimony:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-    
-    with cols[1]:
-        st.metric("Ativos na Carteira", len(df_portfolio))
-        
+
+    # --- Linha 1: P&L ---
+    total_cost = df_portfolio["Custo Total (R$)"].dropna().sum()
+    total_pnl  = df_portfolio["L/P (R$)"].dropna().sum()
+    total_pnl_pct = ((total_patrimony / total_cost) - 1) * 100 if total_cost > 0 else None
+    pnl_delta  = (f"{total_pnl_pct:+.2f}%".replace(".", ",")) if total_pnl_pct is not None else None
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.metric("💼 Patrimônio Atual", _fmt_brl_main(total_patrimony))
+    with c2:
+        st.metric("💸 Custo Investido", _fmt_brl_main(total_cost) if total_cost > 0 else "—")
+    with c3:
+        st.metric(
+            "📈 Lucro / Prejuízo",
+            _fmt_brl_main(total_pnl) if total_cost > 0 else "—",
+            delta=pnl_delta,
+        )
+    with c4:
+        st.metric(
+            "🎯 Rentabilidade",
+            (f"{total_pnl_pct:+.2f}%".replace(".", ",")) if total_pnl_pct is not None else "—",
+        )
+
+    # --- Linha 2: info da carteira ---
     top_asset = df_portfolio.loc[df_portfolio['Valor Total (R$)'].idxmax()]
-    with cols[2]:
-        st.metric("Maior Posição", top_asset['Ticker'])
-        
-    with cols[3]:
-        st.metric("Valor Maior Posição", f"R$ {top_asset['Valor Total (R$)']:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+    i1, i2, _, _ = st.columns(4)
+    with i1:
+        st.metric("🗂️ Ativos na Carteira", len(df_portfolio))
+    with i2:
+        st.metric(f"🏆 Maior Posição — {top_asset['Ticker']}", _fmt_brl_main(top_asset['Valor Total (R$)']))
 
     st.markdown("---")
 
@@ -382,17 +412,21 @@ def main():
 
     # 3. Tabela de Detalhamento
     st.markdown("### 📋 Detalhamento da Carteira")
-    
-    # Formatação elegante para o dataframe exibido
-    df_display = df_portfolio.copy()
-    df_display['Preço Atual (R$)'] = df_display['Preço Atual (R$)'].apply(lambda x: f"R$ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-    df_display['Valor Total (R$)'] = df_display['Valor Total (R$)'].apply(lambda x: f"R$ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-    df_display['Quantidade'] = df_display['Quantidade'].apply(lambda x: f"{x:g}") # Remove zeros desnecessários (ex: 100.0 vira 100)
-    
+
     st.dataframe(
-        df_display,
+        df_portfolio,
         use_container_width=True,
         hide_index=True,
+        column_config={
+            "Ticker":           st.column_config.TextColumn("Ticker", width="small"),
+            "Quantidade":       st.column_config.NumberColumn("Qtd", format="%.0f"),
+            "Preço Médio (R$)": st.column_config.NumberColumn("Preço Médio",  format="R$ %.2f"),
+            "Preço Atual (R$)": st.column_config.NumberColumn("Preço Atual",  format="R$ %.2f"),
+            "Custo Total (R$)": st.column_config.NumberColumn("Custo Total",  format="R$ %.2f"),
+            "Valor Total (R$)": st.column_config.NumberColumn("Valor Atual",  format="R$ %.2f"),
+            "L/P (R$)":         st.column_config.NumberColumn("L/P (R$)",     format="R$ %.2f"),
+            "L/P (%)":          st.column_config.NumberColumn("L/P (%)",      format="%.2f%%"),
+        },
     )
 
     # 4. Painel de Análise Detalhada

@@ -4,18 +4,28 @@ import streamlit as st
 from sqlalchemy.orm import Session
 from models import Asset
 
-def add_asset(db: Session, ticker: str, quantity: float):
-    # Regra: Garante sufixo .SA para ativos B3
+def add_asset(db: Session, ticker: str, quantity: float, price: float = 0.0):
+    """
+    Adiciona ou incrementa um ativo na carteira.
+    Recalcula o preço médio ponderado a cada nova compra:
+        novo_avg = (qtd_antiga × avg_antigo + qtd_nova × preço_novo) / qtd_total
+    """
     ticker = ticker.upper().strip()
     if not ticker.endswith('.SA'):
         ticker += '.SA'
-    
+
     asset = db.query(Asset).filter(Asset.ticker == ticker).first()
     if asset:
-        asset.quantity += quantity
+        if price > 0:
+            total_cost = (asset.avg_price * asset.quantity) + (price * quantity)
+            asset.quantity += quantity
+            asset.avg_price = total_cost / asset.quantity
+        else:
+            asset.quantity += quantity
     else:
-        asset = Asset(ticker=ticker, quantity=quantity)
+        asset = Asset(ticker=ticker, quantity=quantity, avg_price=max(price, 0.0))
         db.add(asset)
+
     db.commit()
     db.refresh(asset)
     return asset
@@ -37,13 +47,13 @@ def get_all_assets(db: Session):
 def fetch_market_data(tickers: tuple) -> dict:
     if not tickers:
         return {}
-    
+
     try:
         # Busca em lote otimizada
         data = yf.download(list(tickers), period="1d", progress=False, auto_adjust=True)
         latest_prices = {}
         close = data['Close']
-        
+
         for ticker in tickers:
             try:
                 # yfinance >= 0.2.x retorna MultiIndex (DataFrame) mesmo com 1 ticker em lista.
@@ -55,7 +65,7 @@ def fetch_market_data(tickers: tuple) -> dict:
                 latest_prices[ticker] = price
             except Exception:
                 latest_prices[ticker] = 0.0
-                
+
         return latest_prices
     except Exception as e:
         print(f"Erro ao buscar cotações no yfinance: {e}")
@@ -65,28 +75,36 @@ def get_portfolio_summary(db: Session):
     assets = get_all_assets(db)
     if not assets:
         return pd.DataFrame(), 0.0
-    
+
     tickers = [asset.ticker for asset in assets]
     market_data = fetch_market_data(tuple(sorted(tickers)))
-    
+
     portfolio_data = []
     total_patrimony = 0.0
-    
+
     for asset in assets:
         price = market_data.get(asset.ticker, 0.0)
         if pd.isna(price):
             price = 0.0
-            
-        total_value = price * asset.quantity
-        total_patrimony += total_value
-        
+
+        current_value = price * asset.quantity
+        cost_basis    = asset.avg_price * asset.quantity
+        pnl_abs       = current_value - cost_basis if cost_basis > 0 else None
+        pnl_pct       = ((current_value / cost_basis) - 1) * 100 if cost_basis > 0 else None
+
+        total_patrimony += current_value
+
         portfolio_data.append({
-            "Ticker": asset.ticker,
-            "Quantidade": asset.quantity,
+            "Ticker":          asset.ticker,
+            "Quantidade":      asset.quantity,
+            "Preço Médio (R$)": asset.avg_price if asset.avg_price > 0 else None,
             "Preço Atual (R$)": price,
-            "Valor Total (R$)": total_value
+            "Custo Total (R$)": cost_basis if cost_basis > 0 else None,
+            "Valor Total (R$)": current_value,
+            "L/P (R$)":        pnl_abs,
+            "L/P (%)":         pnl_pct,
         })
-        
+
     df = pd.DataFrame(portfolio_data)
     return df, total_patrimony
 

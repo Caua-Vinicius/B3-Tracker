@@ -7,6 +7,7 @@ class Asset(Base):
     id = Column(Integer, primary_key=True, index=True)
     ticker = Column(String, unique=True, index=True, nullable=False)
     quantity = Column(Float, nullable=False, default=0.0)
+    avg_price = Column(Float, nullable=False, default=0.0)
 
 # Cria as tabelas no banco de dados (SQLite)
 Base.metadata.create_all(bind=engine)
